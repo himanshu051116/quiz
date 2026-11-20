@@ -1,0 +1,50 @@
+name: Restore original quiz photos
+on:
+  push:
+    paths:
+      - '.github/workflows/restore-original-photos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: true
+      - name: Import and verify original uploads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          curl -fLSs --retry 3 'https://d2ol7oe51mr4n9.cloudfront.net/user_3JgOUx1KQtK2iahxOUoyAghrDnQ/0c4bd0d3-dcef-4adf-95ff-cbd847d089e3.jpg' -o assets/password-photo.jpg
+          curl -fLSs --retry 3 'https://d2ol7oe51mr4n9.cloudfront.net/user_3JgOUx1KQtK2iahxOUoyAghrDnQ/b4a8a82e-47f9-4b44-a01a-c1ffe7756856.jpg' -o assets/reaction-photo.jpg
+          printf '%s  %s\n' '44dd3991113693795d861bb48d58b3a31f23b7f3c3a7cde2aea899216a8430d2' 'assets/password-photo.jpg' | sha256sum --check
+          printf '%s  %s\n' 'a293891c93c3eac80553626242054f9790dd395c76ebdba77aca3da8d9f02de8' 'assets/reaction-photo.jpg' | sha256sum --check
+          python3 - <<'PY'
+          from pathlib import Path
+          changes = {
+            'unlock.html': ('https://d2ol7oe51mr4n9.cloudfront.net/user_3JgOUx1KQtK2iahxOUoyAghrDnQ/0c4bd0d3-dcef-4adf-95ff-cbd847d089e3.jpg', 'assets/password-photo.jpg'),
+            'quiz.html': ('https://d2ol7oe51mr4n9.cloudfront.net/user_3JgOUx1KQtK2iahxOUoyAghrDnQ/b4a8a82e-47f9-4b44-a01a-c1ffe7756856.jpg', 'assets/reaction-photo.jpg'),
+          }
+          for name, (old, new) in changes.items():
+            file = Path(name)
+            contents = file.read_text(encoding='utf-8')
+            if old not in contents:
+                raise RuntimeError('Expected image URL not found: ' + name)
+            file.write_text(contents.replace(old, new), encoding='utf-8')
+          PY
+      - name: Commit the high-quality photographs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add unlock.html quiz.html assets/password-photo.jpg assets/reaction-photo.jpg
+          git diff --cached --quiet && exit 0
+          git commit -m 'Fix swapped photos and restore original resolution'
+          git push
